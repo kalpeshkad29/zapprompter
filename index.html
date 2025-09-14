@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>zapprompter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(to bottom right, #1f2937, #374151);
+        }
+        .container {
+            max-width: 800px;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div class="container mx-auto bg-gray-800 shadow-2xl rounded-3xl p-6 md:p-10 border border-gray-700">
+        <header class="text-center mb-8">
+            <h1 class="text-5xl font-extrabold text-white leading-tight tracking-wide">zapprompter</h1>
+            <p class="mt-2 text-lg text-gray-300">
+                Craft powerful prompts in a flash.
+            </p>
+        </header>
+
+        <main class="space-y-6">
+            <div class="space-y-4">
+                <label for="topicInput" class="block text-gray-200 font-medium text-lg">Enter a Topic or Idea:</label>
+                <textarea id="topicInput" rows="4" class="w-full p-4 bg-gray-700 text-gray-100 placeholder-gray-400 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 resize-none"></textarea>
+            </div>
+
+            <div class="flex justify-end">
+                <button id="generateBtn" class="bg-blue-600 text-white font-semibold py-3 px-8 rounded-full shadow-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 flex items-center justify-center space-x-2">
+                    <span id="buttonText">Zap! Generate Prompt</span>
+                    <div id="loadingIndicator" class="hidden loading-spinner"></div>
+                </button>
+            </div>
+
+            <div id="outputSection" class="hidden mt-8">
+                <h2 class="text-xl font-semibold text-gray-200 mb-4">Generated Prompt:</h2>
+                <div id="promptOutput" class="bg-gray-700 p-5 rounded-xl border border-gray-600 whitespace-pre-wrap text-gray-100 leading-relaxed overflow-auto"></div>
+                
+                <div id="actionsContainer" class="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3 mt-4">
+                    <button id="copyBtn" class="flex-1 bg-gray-600 text-white font-semibold py-2 px-4 rounded-full shadow hover:bg-gray-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                        Copy to Clipboard
+                    </button>
+                    <button id="listenBtn" class="flex-1 bg-purple-600 text-white font-semibold py-2 px-4 rounded-full shadow hover:bg-purple-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        ✨ Listen to Prompt
+                    </button>
+                    <button id="refineBtn" class="flex-1 bg-teal-600 text-white font-semibold py-2 px-4 rounded-full shadow hover:bg-teal-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                        ✨ Refine Prompt
+                    </button>
+                </div>
+            </div>
+
+            <div id="errorSection" class="hidden mt-4 bg-red-800 p-4 rounded-xl border border-red-600 text-red-100">
+                <p id="errorMessage" class="text-sm font-medium"></p>
+            </div>
+        </main>
+    </div>
+    <audio id="audioPlayer" class="hidden"></audio>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const topicInput = document.getElementById('topicInput');
+            const generateBtn = document.getElementById('generateBtn');
+            const buttonText = document.getElementById('buttonText');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const outputSection = document.getElementById('outputSection');
+            const promptOutput = document.getElementById('promptOutput');
+            const errorSection = document.getElementById('errorSection');
+            const errorMessage = document.getElementById('errorMessage');
+            const copyBtn = document.getElementById('copyBtn');
+            const listenBtn = document.getElementById('listenBtn');
+            const refineBtn = document.getElementById('refineBtn');
+            const audioPlayer = document.getElementById('audioPlayer');
+
+            // Set up Firebase variables - crucial for the canvas environment.
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            const apiKey = ""; // Canvas provides this automatically.
+
+            generateBtn.addEventListener('click', async () => {
+                const topic = topicInput.value.trim();
+                if (!topic) {
+                    showError("Please enter a topic to generate a prompt.");
+                    return;
+                }
+
+                // Show loading state
+                buttonText.textContent = "Generating...";
+                loadingIndicator.classList.remove('hidden');
+                generateBtn.disabled = true;
+                outputSection.classList.add('hidden');
+                errorSection.classList.add('hidden');
+
+                const systemPrompt = "You are an expert prompt generator. Your task is to take a simple idea or topic and expand it into a detailed, creative, and clear prompt for a large language model. The prompt should be ready to use, providing context, constraints, and a clear goal. Do not include a conversational introduction or conclusion, just the prompt itself.";
+                const userQuery = `Generate a prompt based on the following topic:\n\nTopic: "${topic}"`;
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                let retries = 0;
+                const maxRetries = 3;
+
+                const fetchWithRetry = async () => {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+
+                        const result = await response.json();
+                        const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text || "No prompt could be generated. Please try a different topic.";
+                        
+                        promptOutput.textContent = generatedText;
+                        outputSection.classList.remove('hidden');
+                        
+                    } catch (error) {
+                        if (retries < maxRetries) {
+                            retries++;
+                            const delay = Math.pow(2, retries) * 1000;
+                            setTimeout(fetchWithRetry, delay);
+                        } else {
+                            showError("Failed to generate a prompt. Please check your internet connection and try again.");
+                        }
+                    } finally {
+                        // Always reset the button state after the fetch operation completes
+                        buttonText.textContent = "Zap! Generate Prompt";
+                        loadingIndicator.classList.add('hidden');
+                        generateBtn.disabled = false;
+                    }
+                };
+
+                fetchWithRetry();
+            });
+
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorSection.classList.remove('hidden');
+            }
+
+            copyBtn.addEventListener('click', () => {
+                const textToCopy = promptOutput.textContent;
+                if (textToCopy) {
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => {
+                            copyBtn.textContent = 'Copy to Clipboard';
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy text: ', err);
+                        alert('Could not copy text. Please copy manually.');
+                    });
+                }
+            });
+
+            refineBtn.addEventListener('click', async () => {
+                const currentPrompt = promptOutput.textContent.trim();
+                if (!currentPrompt) {
+                    showError("Please generate a prompt first before trying to refine it.");
+                    return;
+                }
+
+                refineBtn.disabled = true;
+                refineBtn.textContent = "Refining...";
+
+                const systemPrompt = "Your task is to take an existing prompt and make it more creative and engaging, enhancing its tone and adding detail without changing its core topic. The final output should be the refined prompt only, with no conversational additions.";
+                const userQuery = `Refine the following prompt:\n\nPrompt: "${currentPrompt}"`;
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+                
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    const refinedText = result?.candidates?.[0]?.content?.parts?.[0]?.text || currentPrompt;
+                    promptOutput.textContent = refinedText;
+                } catch (error) {
+                    showError("Failed to refine prompt. Please try again later.");
+                } finally {
+                    refineBtn.textContent = "✨ Refine Prompt";
+                    refineBtn.disabled = false;
+                }
+            });
+
+            listenBtn.addEventListener('click', async () => {
+                const textToSpeak = promptOutput.textContent.trim();
+                if (!textToSpeak) {
+                    showError("Please generate a prompt first to listen to it.");
+                    return;
+                }
+
+                listenBtn.disabled = true;
+                listenBtn.textContent = "Loading...";
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        parts: [{ text: textToSpeak }]
+                    }],
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: { voiceName: "Kore" }
+                            }
+                        }
+                    },
+                };
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const result = await response.json();
+                    const part = result?.candidates?.[0]?.content?.parts?.[0];
+                    const audioData = part?.inlineData?.data;
+                    const mimeType = part?.inlineData?.mimeType;
+
+                    if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                        const sampleRate = parseInt(mimeType.match(/rate=(\d+)/)[1], 10);
+                        const pcmData = base64ToArrayBuffer(audioData);
+                        const pcm16 = new Int16Array(pcmData);
+                        const wavBlob = pcmToWav(pcm16, sampleRate);
+                        const audioUrl = URL.createObjectURL(wavBlob);
+                        
+                        audioPlayer.src = audioUrl;
+                        audioPlayer.play();
+                    } else {
+                        showError("Failed to generate audio. Please try again.");
+                    }
+                } catch (error) {
+                    showError("Failed to generate audio. Please check your connection and try again.");
+                } finally {
+                    listenBtn.textContent = "✨ Listen to Prompt";
+                    listenBtn.disabled = false;
+                }
+            });
+
+            // Helper functions for TTS
+            function base64ToArrayBuffer(base64) {
+                const binaryString = atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes.buffer;
+            }
+
+            function pcmToWav(pcmData, sampleRate) {
+                const pcm16 = pcmData;
+                const numSamples = pcm16.length;
+                const buffer = new ArrayBuffer(44 + numSamples * 2);
+                const view = new DataView(buffer);
+                let offset = 0;
+
+                function writeString(str) {
+                    for (let i = 0; i < str.length; i++) {
+                        view.setUint8(offset + i, str.charCodeAt(i));
+                    }
+                    offset += str.length;
+                }
+
+                function writeUint32(val) {
+                    view.setUint32(offset, val, true);
+                    offset += 4;
+                }
+
+                function writeUint16(val) {
+                    view.setUint16(offset, val, true);
+                    offset += 2;
+                }
+
+                // RIFF header
+                writeString('RIFF');
+                writeUint32(36 + numSamples * 2);
+                writeString('WAVE');
+
+                // fmt chunk
+                writeString('fmt ');
+                writeUint32(16);
+                writeUint16(1); // PCM format
+                writeUint16(1); // 1 channel
+                writeUint32(sampleRate);
+                writeUint32(sampleRate * 2);
+                writeUint16(2); // Block align
+                writeUint16(16); // Bits per sample
+
+                // data chunk
+                writeString('data');
+                writeUint32(numSamples * 2);
+
+                // Write PCM data
+                for (let i = 0; i < numSamples; i++) {
+                    view.setInt16(offset, pcm16[i], true);
+                    offset += 2;
+                }
+
+                return new Blob([view], { type: 'audio/wav' });
+            }
+        });
+    </script>
+</body>
+</html>
