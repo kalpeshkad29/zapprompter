@@ -26,4 +26,7 @@ Zapprompter is a modern web-based prompt generator designed to make content crea
 
 5)Output Displayed → The user instantly sees the generated prompt on the website, ready to use or refine.
 
+DEMO
+you can see the demo here - 'https://github.com/kalpeshkad29/zapprompter/blob/main/screen%20recording%20of%20page(zapprompter).mp4'
+
 
