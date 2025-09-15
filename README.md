@@ -11,4 +11,3 @@ Features:
 
 3)Easy-to-navigate layout with modern UI elements
 
-check out live demo here - https://kalpeshkad29.github.io/zapprompter/
